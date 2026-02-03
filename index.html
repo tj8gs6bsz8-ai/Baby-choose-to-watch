@@ -1,6 +1,181 @@
-    // --- 資料庫 (圖示與名稱) ---
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>水果辨識大挑戰</title>
+    <style>
+        /* --- 全局設定 --- */
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #ffeaa7; /* 柔和的黃色背景 */
+            font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+            overflow: hidden; /* 防止捲動 */
+        }
+
+        /* --- 遊戲主體容器 (維持 4:5 手機比例) --- */
+        #game-container {
+            width: 90vw;
+            max-width: 420px;
+            aspect-ratio: 4 / 5;
+            background-color: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* --- 標題區域 --- */
+        header {
+            text-align: center;
+            margin-bottom: 16px;
+            flex-shrink: 0;
+        }
+        h1 { margin: 0; font-size: 1.8rem; color: #2d3436; letter-spacing: 1px; }
+        p#status-text { 
+            margin: 8px 0 0; 
+            color: #636e72; 
+            font-size: 1.2rem; 
+            font-weight: bold;
+            min-height: 1.5em; 
+        }
+
+        /* --- 3x3 九宮格 --- */
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 12px;
+            flex-grow: 1;
+        }
+
+        /* --- 格子樣式 --- */
+        .cell {
+            background-color: #f5f6fa;
+            border: 3px solid #dcdde1;
+            border-radius: 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3.5rem; /* Emoji 大小 */
+            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .cell:active { transform: scale(0.92); }
+
+        /* 正確 (水果) 樣式 */
+        .cell.correct {
+            background-color: #55efc4;
+            border-color: #00b894;
+            color: rgba(255,255,255,0.8);
+            pointer-events: none; /* 鎖定不可再點 */
+        }
+        /* 選中後圖示半透明，顯示「已收集」的感覺 */
+        .cell.correct::after {
+            content: '✅';
+            position: absolute;
+            font-size: 1.5rem;
+            opacity: 0.8;
+        }
+
+        /* 錯誤 (陷阱) 樣式 */
+        .cell.wrong {
+            background-color: #ff7675;
+            border-color: #d63031;
+            animation: shake 0.5s;
+        }
+
+        /* --- 遮罩層 (開始/結算) --- */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+
+        #overlay-title {
+            font-size: 2rem;
+            color: #2d3436;
+            margin-bottom: 30px;
+            font-weight: 800;
+        }
+
+        #action-btn {
+            background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+            border: none;
+            padding: 16px 48px;
+            color: white;
+            font-size: 1.4rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(9, 132, 227, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        #action-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 4px 10px rgba(9, 132, 227, 0.3);
+        }
+
+        /* 工具類 */
+        .hidden { 
+            opacity: 0; 
+            pointer-events: none; 
+            visibility: hidden;
+        }
+
+        /* 錯誤震動動畫 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px) rotate(-5deg); }
+            40% { transform: translateX(10px) rotate(5deg); }
+            60% { transform: translateX(-10px) rotate(-5deg); }
+            80% { transform: translateX(10px) rotate(5deg); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header>
+        <h1>🍎 水果點點名</h1>
+        <p id="status-text">請找出所有水果！</p>
+    </header>
+
+    <div id="grid">
+        </div>
+
+    <div id="overlay">
+        <div id="overlay-title">準備好了嗎？</div>
+        <button id="action-btn" onclick="startGame()">開始遊戲</button>
+    </div>
+</div>
+
+<script>
+    /* =========================================
+       1. 資料庫設定 (擴充版)
+       ========================================= */
     
-    // 1. 水果庫 (擴充到 20 種)
+    // 水果列表 (目標)
     const fruitPool = [
         { icon: '🍎', name: '紅蘋果' }, { icon: '🍏', name: '青蘋果' },
         { icon: '🍌', name: '香蕉' },   { icon: '🍇', name: '葡萄' },
@@ -11,26 +186,210 @@
         { icon: '🍋', name: '檸檬' },   { icon: '🍐', name: '西洋梨' },
         { icon: '🥭', name: '芒果' },   { icon: '🥥', name: '椰子' },
         { icon: '🥑', name: '酪梨' },   { icon: '🫐', name: '藍莓' },
-        { icon: '🍅', name: '番茄' },   { icon: '🌽', name: '玉米' } // 玉米在植物學上算果實，也可當陷阱，看您定義
+        { icon: '🍅', name: '番茄' },   { icon: '🌽', name: '玉米' }
     ];
 
-    // 2. 非水果庫 (陷阱 - 擴充到 20 種，涵蓋動物、交通、物品)
+    // 非水果列表 (陷阱：動物、交通、物品)
     const trapPool = [
-        // 動物
         { icon: '🐶', name: '小狗' }, { icon: '🐱', name: '貓咪' },
         { icon: '🦁', name: '獅子' }, { icon: '🐷', name: '小豬' },
         { icon: '🐸', name: '青蛙' }, { icon: '🐵', name: '猴子' },
         { icon: '🐼', name: '熊貓' }, { icon: '🐔', name: '公雞' },
-        
-        // 植物/自然
         { icon: '🌵', name: '仙人掌' }, { icon: '🌻', name: '向日葵' },
         { icon: '🌹', name: '玫瑰花' }, { icon: '🌲', name: '大樹' },
-        
-        // 交通工具
         { icon: '🚗', name: '汽車' }, { icon: '✈️', name: '飛機' },
         { icon: '🚲', name: '腳踏車' }, { icon: '🚑', name: '救護車' },
-        
-        // 物品/食物
         { icon: '⏰', name: '鬧鐘' }, { icon: '🎈', name: '氣球' },
         { icon: '🍦', name: '冰淇淋' }, { icon: '🍔', name: '漢堡' }
     ];
+
+    /* =========================================
+       2. 遊戲變數與工具
+       ========================================= */
+    
+    let currentGridItems = [];
+    let collectedCount = 0;
+    const targetCount = 6;
+    let isGameActive = false;
+    let audioContext = null;
+
+    // 洗牌演算法 (Fisher-Yates)
+    function shuffle(array) {
+        let newArr = [...array];
+        for (let i = newArr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+        }
+        return newArr;
+    }
+
+    /* =========================================
+       3. 音效與語音系統
+       ========================================= */
+
+    // 初始化音效環境 (瀏覽器需要使用者互動後才能開啟 AudioContext)
+    function initAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    }
+
+    // 播放合成音效 (無需外部檔案)
+    function playTone(type) {
+        if (!audioContext) return;
+        
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const now = audioContext.currentTime;
+
+        if (type === 'correct') { // 清脆的高音
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        } else if (type === 'wrong') { // 低沉的錯誤音
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.linearRampToValueAtTime(100, now + 0.3);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        } else if (type === 'win') { // 勝利旋律
+            // 簡單的三連音
+            const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+            notes.forEach((freq, i) => {
+                const o = audioContext.createOscillator();
+                const g = audioContext.createGain();
+                o.type = 'triangle';
+                o.frequency.value = freq;
+                g.gain.setValueAtTime(0.1, now + i * 0.1);
+                g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.3);
+                o.connect(g);
+                g.connect(audioContext.destination);
+                o.start(now + i * 0.1);
+                o.stop(now + i * 0.1 + 0.3);
+            });
+        } else {
+            // 連接
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+        }
+    }
+
+    // 語音朗讀 (TTS)
+    function speak(text) {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // 停止上一句
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'zh-TW'; // 設定中文
+            u.rate = 1.0;     // 語速正常
+            window.speechSynthesis.speak(u);
+        }
+    }
+
+    /* =========================================
+       4. 遊戲核心邏輯
+       ========================================= */
+
+    function startGame() {
+        initAudio(); // 確保音效引擎啟動
+
+        // UI 初始化
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('status-text').textContent = "請找出所有 6 個水果";
+        document.getElementById('status-text').style.color = "#636e72";
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        
+        collectedCount = 0;
+        isGameActive = true;
+
+        // --- 產生不重複的隨機關卡 ---
+        // 1. 隨機取 6 個水果
+        const safeItems = shuffle(fruitPool).slice(0, targetCount).map(i => ({...i, type: 'fruit'}));
+        // 2. 隨機取 3 個陷阱
+        const trapItems = shuffle(trapPool).slice(0, 3).map(i => ({...i, type: 'trap'}));
+        // 3. 合併並再次洗牌
+        currentGridItems = shuffle([...safeItems, ...trapItems]);
+
+        // --- 渲染畫面 ---
+        currentGridItems.forEach((item, index) => {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.textContent = item.icon; // 顯示 Emoji
+            cell.onclick = () => handleInput(index, cell, item);
+            grid.appendChild(cell);
+        });
+
+        // 語音提示
+        setTimeout(() => speak("請點選水果"), 500);
+    }
+
+    function handleInput(index, cell, item) {
+        if (!isGameActive || cell.classList.contains('correct')) return;
+
+        // 1. 先朗讀物品名稱
+        speak(item.name);
+
+        // 2. 判斷邏輯
+        if (item.type === 'fruit') {
+            // --- 答對 ---
+            cell.classList.add('correct'); // 變綠 + 鎖定
+            playTone('correct');
+            collectedCount++;
+            
+            // 更新狀態文字
+            document.getElementById('status-text').textContent = `好棒！這是${item.name} (${collectedCount}/${targetCount})`;
+            document.getElementById('status-text').style.color = "#00b894";
+
+            // 檢查過關
+            if (collectedCount === targetCount) {
+                endGame(true);
+            }
+        } else {
+            // --- 答錯 ---
+            cell.classList.add('wrong'); // 變紅 + 震動
+            playTone('wrong');
+            
+            // 視覺提示失敗
+            document.getElementById('status-text').textContent = `哎呀！${item.name}不是水果喔`;
+            document.getElementById('status-text').style.color = "#d63031";
+            
+            endGame(false);
+        }
+    }
+
+    function endGame(isWin) {
+        isGameActive = false;
+        
+        // 延遲顯示結算畫面 (讓玩家聽完最後一個物品的發音)
+        setTimeout(() => {
+            const overlay = document.getElementById('overlay');
+            const title = document.getElementById('overlay-title');
+            const btn = document.getElementById('action-btn');
+
+            overlay.classList.remove('hidden');
+
+            if (isWin) {
+                title.textContent = "🎉 過關！太棒了！";
+                btn.textContent = "再玩一次";
+                playTone('win');
+                speak("過關，太棒了");
+            } else {
+                title.textContent = "💥 挑戰失敗...";
+                btn.textContent = "再試一次";
+                speak("哎呀，選錯了");
+            }
+        }, 1200);
+    }
+</script>
+
+</body>
+</html>
