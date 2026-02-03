@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>水果踩地雷</title>
+    <title>水果辨識挑戰</title>
     <style>
-        /* 手機易讀版面設定 */
+        /* --- 基礎設定 --- */
         body {
             margin: 0;
             padding: 0;
@@ -17,7 +17,7 @@
             font-family: "Microsoft JhengHei", sans-serif;
         }
 
-        /* 遊戲主容器：維持 4:5 比例 */
+        /* --- 遊戲主容器 (4:5 比例) --- */
         #game-container {
             width: 90vw;
             max-width: 400px;
@@ -30,17 +30,18 @@
             padding: 20px;
             box-sizing: border-box;
             position: relative;
+            overflow: hidden; /* 為了遮罩層 */
         }
 
-        /* 標題與狀態區 */
+        /* --- 標題區 --- */
         header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         h1 { margin: 0; font-size: 1.5rem; color: #333; }
         p { margin: 5px 0 0; color: #666; font-size: 1rem; }
 
-        /* 3x3 九宮格區域 */
+        /* --- 3x3 遊戲區 --- */
         #grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -49,38 +50,73 @@
             flex-grow: 1;
         }
 
-        /* 格子樣式 */
+        /* --- 格子樣式 (預設即顯示) --- */
         .cell {
-            background-color: #81ecec;
-            border-radius: 10px;
+            background-color: #f1f2f6;
+            border: 2px solid #dfe4ea;
+            border-radius: 15px;
             cursor: pointer;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 2.5rem;
-            transition: transform 0.1s, background-color 0.3s;
+            font-size: 3rem; /* 圖示大一點 */
+            transition: all 0.2s;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
 
         .cell:active { transform: scale(0.95); }
 
-        /* 翻開後的樣式 */
-        .cell.safe { background-color: #ffeaa7; cursor: default; }
-        .cell.boom { background-color: #ff7675; cursor: default; }
-        .cell.revealed { transform: rotateY(180deg); }
+        /* 正確選取後的樣式 (變暗或打勾) */
+        .cell.collected {
+            background-color: #55efc4;
+            opacity: 0.5;
+            pointer-events: none; /* 不能再點 */
+            border-color: #00b894;
+        }
 
-        /* 重新開始按鈕 */
-        #restart-btn {
-            margin-top: 20px;
-            padding: 15px;
+        /* 點到炸彈的樣式 */
+        .cell.boom {
+            background-color: #ff7675;
+            animation: shake 0.5s;
+        }
+
+        /* --- 開始/遮罩層 (為了觸發音效，瀏覽器通常需要使用者先互動) --- */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255,255,255,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        
+        #start-btn, #restart-btn {
+            padding: 15px 40px;
             border: none;
             background-color: #0984e3;
             color: white;
-            font-size: 1.2rem;
-            border-radius: 10px;
+            font-size: 1.5rem;
+            border-radius: 50px;
             cursor: pointer;
-            display: none; /* 遊戲結束才顯示 */
+            box-shadow: 0 5px 15px rgba(9, 132, 227, 0.4);
+            transition: transform 0.2s;
+        }
+        
+        #start-btn:active, #restart-btn:active { transform: scale(0.95); }
+
+        /* 隱藏元素 */
+        .hidden { display: none !important; }
+
+        /* 錯誤時的震動動畫 */
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
         }
     </style>
 </head>
@@ -88,145 +124,165 @@
 
 <div id="game-container">
     <header>
-        <h1>尋找水果</h1>
-        <p id="status-text">請找出所有 6 個水果！</p>
+        <h1>辨識大挑戰</h1>
+        <p id="status-text">準備好了嗎？</p>
     </header>
 
     <div id="grid">
         </div>
 
-    <button id="restart-btn" onclick="initGame()">再來一局</button>
+    <div id="overlay">
+        <h2 id="overlay-msg" style="margin-bottom: 20px; color:#333;">點擊開始遊戲</h2>
+        <button id="start-btn" onclick="startGame()">開始遊戲</button>
+    </div>
 </div>
 
 <script>
-    // --- 遊戲設定 ---
+    // --- 遊戲參數 ---
     const totalCells = 9;
     const safeCount = 6;
     const boomCount = 3;
     
-    // 圖示庫
-    const fruitIcons = ['🍎', '🍌', '🍇', '🍊', '🍓', '🍑']; // 安全圖示
-    const bombIcon = '💣'; // 爆炸圖示
+    const fruitIcons = ['🍎', '🍌', '🍇', '🍊', '🍓', '🍑', '🍍', '🍈'];
+    const bombIcons = ['💣', '🧨', '💥']; // 這裡設定非水果圖示
 
-    // 狀態變數
-    let gridData = []; // 儲存每一格是安全還是炸彈
-    let revealedCount = 0;
+    let gridData = []; 
+    let collectedCount = 0;
     let isGameOver = false;
 
-    // --- 音效設定 (請將字串替換為您的音效檔路徑) ---
-    // 範例： const soundSafe = new Audio('safe.mp3');
-    // 這裡使用瀏覽器內建簡單頻率模擬，或請您自行放入檔案
-    const soundSafe = new Audio(''); // 填入安全音效路徑
-    const soundBoom = new Audio(''); // 填入爆炸音效路徑
-    const soundWin = new Audio('');  // 填入過關音效路徑
+    // --- 音效與語音 ---
+    // 簡單的 Web Audio API 合成音效 (不用外部檔案)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // 初始化遊戲
-    function initGame() {
-        const grid = document.getElementById('grid');
-        const statusText = document.getElementById('status-text');
-        const restartBtn = document.getElementById('restart-btn');
-        
-        grid.innerHTML = ''; // 清空盤面
-        statusText.textContent = '請找出所有 6 個水果！';
-        statusText.style.color = '#666';
-        restartBtn.style.display = 'none';
-        isGameOver = false;
-        revealedCount = 0;
+    function playTone(freq, type) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(0.5);
+    }
 
-        // 1. 產生數據：6個水果 + 3個炸彈
-        let baseArray = Array(safeCount).fill('safe').concat(Array(boomCount).fill('boom'));
-        // 2. 隨機打亂 (Fisher-Yates Shuffle)
-        for (let i = baseArray.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [baseArray[i], baseArray[j]] = [baseArray[j], baseArray[i]];
-        }
-        gridData = baseArray;
-
-        // 3. 生成 HTML 格子
-        for (let i = 0; i < totalCells; i++) {
-            const cell = document.createElement('div');
-            cell.classList.add('cell');
-            cell.dataset.index = i;
-            cell.addEventListener('click', () => handleClick(i, cell));
-            grid.appendChild(cell);
+    // 語音導讀 (TTS)
+    function speak(text) {
+        if ('speechSynthesis' in window) {
+            // 取消之前的發音，避免重疊
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-TW'; // 設定為中文
+            utterance.rate = 1;       // 語速
+            utterance.pitch = 1;      // 音調
+            window.speechSynthesis.speak(utterance);
         }
     }
 
-    // 點擊處理
-    function handleClick(index, cellElement) {
-        if (isGameOver || cellElement.classList.contains('revealed')) return;
+    // --- 遊戲邏輯 ---
 
-        const type = gridData[index];
-        cellElement.classList.add('revealed');
+    function startGame() {
+        // 隱藏遮罩
+        document.getElementById('overlay').classList.add('hidden');
+        resetBoard();
+        
+        // 播放音效 + 語音
+        playTone(600, 'sine'); // 開始音效
+        setTimeout(() => {
+            speak("請點選水果");
+            document.getElementById('status-text').textContent = "請點選水果 🍎";
+        }, 500);
+    }
 
-        if (type === 'safe') {
-            // --- 安全情況 ---
-            // 隨機選一個水果圖示顯示
-            const randomFruit = fruitIcons[Math.floor(Math.random() * fruitIcons.length)];
-            cellElement.textContent = randomFruit;
-            cellElement.classList.add('safe');
-            
-            playSound('safe');
-            revealedCount++;
+    function resetBoard() {
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        collectedCount = 0;
+        isGameOver = false;
 
-            // 檢查是否過關 (6個全點完)
-            if (revealedCount === safeCount) {
+        // 1. 準備數據：6水果 + 3炸彈
+        let items = [];
+        
+        // 隨機選6個水果
+        for(let i=0; i<safeCount; i++) {
+            const icon = fruitIcons[Math.floor(Math.random() * fruitIcons.length)];
+            items.push({ type: 'safe', icon: icon });
+        }
+        // 隨機選3個炸彈
+        for(let i=0; i<boomCount; i++) {
+            items.push({ type: 'boom', icon: '💣' });
+        }
+
+        // 2. 打亂 (Shuffle)
+        for (let i = items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [items[i], items[j]] = [items[j], items[i]];
+        }
+        gridData = items;
+
+        // 3. 渲染格子 (直接顯示圖示)
+        items.forEach((item, index) => {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.textContent = item.icon; // 直接顯示
+            cell.onclick = () => handleCellClick(index, cell);
+            grid.appendChild(cell);
+        });
+    }
+
+    function handleCellClick(index, cell) {
+        if (isGameOver || cell.classList.contains('collected')) return;
+
+        const item = gridData[index];
+
+        if (item.type === 'safe') {
+            // --- 點對了 (水果) ---
+            cell.classList.add('collected');
+            playTone(800, 'sine'); // 清脆音
+            collectedCount++;
+
+            // 檢查過關
+            if (collectedCount === safeCount) {
                 gameWin();
             }
         } else {
-            // --- 爆炸情況 ---
-            cellElement.textContent = bombIcon;
-            cellElement.classList.add('boom');
-            playSound('boom');
+            // --- 點錯了 (炸彈) ---
+            cell.classList.add('boom');
+            playTone(150, 'sawtooth'); // 低沉錯誤音
             gameOver();
         }
     }
 
-    function gameOver() {
-        isGameOver = true;
-        document.getElementById('status-text').textContent = '💥 糟糕！踩到地雷了！';
-        document.getElementById('status-text').style.color = '#e74c3c';
-        document.getElementById('restart-btn').style.display = 'block';
-        revealAll();
-    }
-
     function gameWin() {
         isGameOver = true;
-        document.getElementById('status-text').textContent = '🎉 恭喜！水果全部找到了！';
-        document.getElementById('status-text').style.color = '#27ae60';
-        document.getElementById('restart-btn').style.display = 'block';
-        playSound('win');
+        speak("恭喜過關");
+        document.getElementById('status-text').textContent = "🎉 全數安全！";
+        document.getElementById('status-text').style.color = "#00b894";
+        showOverlay("太棒了！過關！", "再玩一次");
     }
 
-    // 遊戲結束時顯示所有答案
-    function revealAll() {
-        const cells = document.querySelectorAll('.cell');
-        cells.forEach((cell, i) => {
-            if (!cell.classList.contains('revealed')) {
-                cell.classList.add('revealed');
-                if (gridData[i] === 'safe') {
-                    cell.textContent = '🍎'; // 未翻開的安全格顯示預設水果
-                    cell.style.opacity = '0.5';
-                } else {
-                    cell.textContent = '💣';
-                }
-            }
-        });
+    function gameOver() {
+        isGameOver = true;
+        speak("爆炸了，遊戲結束");
+        document.getElementById('status-text').textContent = "💥 點到炸彈了！";
+        document.getElementById('status-text').style.color = "#d63031";
+        showOverlay("💥 失敗！", "重新挑戰");
     }
 
-    // 簡單的音效播放包裝器
-    function playSound(type) {
-        // 如果您有實際音效檔，請取消註解下方代碼
-        /*
-        if (type === 'safe' && soundSafe.src) soundSafe.play();
-        if (type === 'boom' && soundBoom.src) soundBoom.play();
-        if (type === 'win' && soundWin.src) soundWin.play();
-        */
-        console.log(`播放音效: ${type}`);
+    function showOverlay(msg, btnText) {
+        setTimeout(() => {
+            const overlay = document.getElementById('overlay');
+            const title = document.getElementById('overlay-msg');
+            const btn = document.getElementById('start-btn');
+            
+            title.textContent = msg;
+            btn.textContent = btnText;
+            overlay.classList.remove('hidden');
+        }, 1000); // 延遲一秒顯示結果，讓玩家看到最後的操作
     }
-
-    // 啟動遊戲
-    initGame();
 </script>
 
 </body>
