@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水果踩地雷</title>
+    <style>
+        /* 手機易讀版面設定 */
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            font-family: "Microsoft JhengHei", sans-serif;
+        }
+
+        /* 遊戲主容器：維持 4:5 比例 */
+        #game-container {
+            width: 90vw;
+            max-width: 400px;
+            aspect-ratio: 4 / 5;
+            background-color: #fff;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        /* 標題與狀態區 */
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        h1 { margin: 0; font-size: 1.5rem; color: #333; }
+        p { margin: 5px 0 0; color: #666; font-size: 1rem; }
+
+        /* 3x3 九宮格區域 */
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 10px;
+            flex-grow: 1;
+        }
+
+        /* 格子樣式 */
+        .cell {
+            background-color: #81ecec;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5rem;
+            transition: transform 0.1s, background-color 0.3s;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .cell:active { transform: scale(0.95); }
+
+        /* 翻開後的樣式 */
+        .cell.safe { background-color: #ffeaa7; cursor: default; }
+        .cell.boom { background-color: #ff7675; cursor: default; }
+        .cell.revealed { transform: rotateY(180deg); }
+
+        /* 重新開始按鈕 */
+        #restart-btn {
+            margin-top: 20px;
+            padding: 15px;
+            border: none;
+            background-color: #0984e3;
+            color: white;
+            font-size: 1.2rem;
+            border-radius: 10px;
+            cursor: pointer;
+            display: none; /* 遊戲結束才顯示 */
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header>
+        <h1>尋找水果</h1>
+        <p id="status-text">請找出所有 6 個水果！</p>
+    </header>
+
+    <div id="grid">
+        </div>
+
+    <button id="restart-btn" onclick="initGame()">再來一局</button>
+</div>
+
+<script>
+    // --- 遊戲設定 ---
+    const totalCells = 9;
+    const safeCount = 6;
+    const boomCount = 3;
+    
+    // 圖示庫
+    const fruitIcons = ['🍎', '🍌', '🍇', '🍊', '🍓', '🍑']; // 安全圖示
+    const bombIcon = '💣'; // 爆炸圖示
+
+    // 狀態變數
+    let gridData = []; // 儲存每一格是安全還是炸彈
+    let revealedCount = 0;
+    let isGameOver = false;
+
+    // --- 音效設定 (請將字串替換為您的音效檔路徑) ---
+    // 範例： const soundSafe = new Audio('safe.mp3');
+    // 這裡使用瀏覽器內建簡單頻率模擬，或請您自行放入檔案
+    const soundSafe = new Audio(''); // 填入安全音效路徑
+    const soundBoom = new Audio(''); // 填入爆炸音效路徑
+    const soundWin = new Audio('');  // 填入過關音效路徑
+
+    // 初始化遊戲
+    function initGame() {
+        const grid = document.getElementById('grid');
+        const statusText = document.getElementById('status-text');
+        const restartBtn = document.getElementById('restart-btn');
+        
+        grid.innerHTML = ''; // 清空盤面
+        statusText.textContent = '請找出所有 6 個水果！';
+        statusText.style.color = '#666';
+        restartBtn.style.display = 'none';
+        isGameOver = false;
+        revealedCount = 0;
+
+        // 1. 產生數據：6個水果 + 3個炸彈
+        let baseArray = Array(safeCount).fill('safe').concat(Array(boomCount).fill('boom'));
+        // 2. 隨機打亂 (Fisher-Yates Shuffle)
+        for (let i = baseArray.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [baseArray[i], baseArray[j]] = [baseArray[j], baseArray[i]];
+        }
+        gridData = baseArray;
+
+        // 3. 生成 HTML 格子
+        for (let i = 0; i < totalCells; i++) {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.dataset.index = i;
+            cell.addEventListener('click', () => handleClick(i, cell));
+            grid.appendChild(cell);
+        }
+    }
+
+    // 點擊處理
+    function handleClick(index, cellElement) {
+        if (isGameOver || cellElement.classList.contains('revealed')) return;
+
+        const type = gridData[index];
+        cellElement.classList.add('revealed');
+
+        if (type === 'safe') {
+            // --- 安全情況 ---
+            // 隨機選一個水果圖示顯示
+            const randomFruit = fruitIcons[Math.floor(Math.random() * fruitIcons.length)];
+            cellElement.textContent = randomFruit;
+            cellElement.classList.add('safe');
+            
+            playSound('safe');
+            revealedCount++;
+
+            // 檢查是否過關 (6個全點完)
+            if (revealedCount === safeCount) {
+                gameWin();
+            }
+        } else {
+            // --- 爆炸情況 ---
+            cellElement.textContent = bombIcon;
+            cellElement.classList.add('boom');
+            playSound('boom');
+            gameOver();
+        }
+    }
+
+    function gameOver() {
+        isGameOver = true;
+        document.getElementById('status-text').textContent = '💥 糟糕！踩到地雷了！';
+        document.getElementById('status-text').style.color = '#e74c3c';
+        document.getElementById('restart-btn').style.display = 'block';
+        revealAll();
+    }
+
+    function gameWin() {
+        isGameOver = true;
+        document.getElementById('status-text').textContent = '🎉 恭喜！水果全部找到了！';
+        document.getElementById('status-text').style.color = '#27ae60';
+        document.getElementById('restart-btn').style.display = 'block';
+        playSound('win');
+    }
+
+    // 遊戲結束時顯示所有答案
+    function revealAll() {
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach((cell, i) => {
+            if (!cell.classList.contains('revealed')) {
+                cell.classList.add('revealed');
+                if (gridData[i] === 'safe') {
+                    cell.textContent = '🍎'; // 未翻開的安全格顯示預設水果
+                    cell.style.opacity = '0.5';
+                } else {
+                    cell.textContent = '💣';
+                }
+            }
+        });
+    }
+
+    // 簡單的音效播放包裝器
+    function playSound(type) {
+        // 如果您有實際音效檔，請取消註解下方代碼
+        /*
+        if (type === 'safe' && soundSafe.src) soundSafe.play();
+        if (type === 'boom' && soundBoom.src) soundBoom.play();
+        if (type === 'win' && soundWin.src) soundWin.play();
+        */
+        console.log(`播放音效: ${type}`);
+    }
+
+    // 啟動遊戲
+    initGame();
+</script>
+
+</body>
+</html>
